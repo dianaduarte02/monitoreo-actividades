@@ -64,8 +64,8 @@ tr:hover td{background:#fdf8f8}
 const STORE='dggrrd_demo_v1', HISTORY_STORE='dggrrd_history_v2', CONFIG='dggrrd_supabase_config_v1';
 // Configuración interna: al habilitar Supabase, completar aquí solo URL y clave pública.
 // Nunca colocar una clave service_role en el navegador.
-const SUPABASE_URL='';
-const SUPABASE_PUBLISHABLE_KEY='';
+const SUPABASE_URL='https://ncihmwmhazvtrdjtevyg.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_I-0Jn0IaJegFZhTohQaycQ_9rgOWCiK';
 const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today=()=>new Date().toLocaleDateString('en-CA');
 const uid=()=>crypto.randomUUID?.()||String(Date.now())+Math.random();
