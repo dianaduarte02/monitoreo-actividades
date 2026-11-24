@@ -132,7 +132,7 @@ function tile(layer,forPicker=false,token=0){
  const config=tileProviders[layer]||tileProviders.osm;
  const t=L.tileLayer(config.url,{maxZoom:19,attribution:config.attribution,updateWhenIdle:true,keepBuffer:2,referrerPolicy:'strict-origin-when-cross-origin'});
  let errors=0,loaded=false;
- t.on('tileload',()=>{loaded=true;t.hasRenderedTiles=true;if(!forPicker&&$('mapMessage'))$('mapMessage').textContent='Mapa cargado. Hacé clic en un punto para abrir su ficha.';});
+ t.on('tileload',()=>{loaded=true;t.hasRenderedTiles=true;if(!forPicker&&$('mapMessage'))$('mapMessage').textContent=canSeeDetails()?'Mapa cargado. Hacé clic en un punto para abrir su ficha.':'Mapa cargado. Los puntos muestran el estado de las actividades mediante colores.';});
  t.on('tileerror',()=>{errors++;if(errors>=3&&!loaded){if(forPicker){if(token===pickToken)schedulePickFallback(layer,token,400)}else if(token===mapToken)scheduleMapFallback(layer,token,400)}});
  return t;
 }
@@ -157,9 +157,28 @@ function schedulePickFallback(layer,token,delay=3600){
 }
 let pickBase=null;
 function activatePickTiles(layer){if(!pickmap)return;const pickerSelect=$('pickBaseLayer');if(pickerSelect&&pickerSelect.value!==layer)pickerSelect.value=layer;document.querySelectorAll('#pickmap .external-map').forEach(e=>e.remove());const token=++pickToken;clearOverlays(true);if(pickBase)pickmap.removeLayer(pickBase);pickBase=tile(layer,true,token).addTo(pickmap);if(layer==='hybrid')addHybridOverlays(pickmap,true,token);schedulePickFallback(layer,token)}
+// Vista inicial del mapa principal: ciudad de Asunción.
+const ASUNCION_CENTER=[-25.2867,-57.6359];
+const ASUNCION_ZOOM=12;
+function homeAsuncion(){if(map)map.setView(ASUNCION_CENTER,ASUNCION_ZOOM)}
 function initializeMap(){
  if(!window.L){fallbackFrame($('map'));return}
- try{map=L.map('map').setView([-25.2867,-57.6359],12);pinLayer=L.layerGroup().addTo(map);setBaseLayer();setTimeout(()=>map.invalidateSize(),200)}
+ try{map=L.map('map').setView(ASUNCION_CENTER,ASUNCION_ZOOM);pinLayer=L.layerGroup().addTo(map);setBaseLayer();
+ // Botón de inicio solo en el mapa principal; no modifica el mapa del formulario.
+ const HomeControl=L.Control.extend({
+  options:{position:'topleft'},
+  onAdd:function(){
+   const container=L.DomUtil.create('div','leaflet-bar leaflet-control');
+   const button=L.DomUtil.create('a','',container);
+   button.href='#';button.title='Volver a la vista de Asunción';
+   button.setAttribute('role','button');button.setAttribute('aria-label','Volver a la vista de Asunción');
+   button.innerHTML='⌂';button.style.cssText='font-size:25px;font-weight:700;line-height:30px;text-decoration:none;color:#222;';
+   L.DomEvent.disableClickPropagation(container);
+   L.DomEvent.on(button,'click',function(e){L.DomEvent.stop(e);homeAsuncion()});
+   return container;
+  }
+ });
+ map.addControl(new HomeControl());setTimeout(()=>map.invalidateSize(),200)}
  catch(e){console.error('Error inicializando mapa',e);fallbackFrame($('map'))}
 }
 function setBaseLayer(auto=false){
@@ -175,7 +194,7 @@ function setBaseLayer(auto=false){
  scheduleMapFallback(layer,token);
  setTimeout(()=>map.invalidateSize(),80)
 }
-function fitPins(){if(!map)return;const pins=visibleJourneys().filter(j=>j.lat!=null&&j.lng!=null&&Number.isFinite(+j.lat)&&Number.isFinite(+j.lng));if(pins.length)map.fitBounds(L.latLngBounds(pins.map(j=>[j.lat,j.lng])).pad(.15),{maxZoom:15});else if(!filtersActive())map.setView([-25.2867,-57.6359],12)}
+function fitPins(){if(!map)return;const pins=visibleJourneys().filter(j=>j.lat!=null&&j.lng!=null&&Number.isFinite(+j.lat)&&Number.isFinite(+j.lng));if(pins.length)map.fitBounds(L.latLngBounds(pins.map(j=>[j.lat,j.lng])).pad(.15),{maxZoom:15});else if(!filtersActive())homeAsuncion()}
 function normalizedStatus(s){return s==='Pendiente'?'Programada':s==='En proceso'?'En ejecución':s||'Programada'}
 function statusColor(s){return normalizedStatus(s)==='Finalizada'?'#2fa65a':normalizedStatus(s)==='En ejecución'?'#e7b437':'#c91930'}
 function journeyStatus(aa){return aa.length&&aa.every(a=>normalizedStatus(a.status)==='Finalizada')?'Finalizada':aa.some(a=>['En ejecución','Finalizada'].includes(normalizedStatus(a.status)))?'En ejecución':'Programada'}
@@ -183,7 +202,7 @@ async function evidenceHTML(value){if(!value)return '<p class="hint">Sin imagen 
 async function renderEvidence(jid){const target=$('evidencePhotos');if(!target)return;const aa=activities.filter(a=>a.journey_id===jid);const cards=[];for(const a of aa){cards.push(`<div class="activity"><b>${esc(a.category)} · ${esc(a.activity_type)}</b><div class="evidence-grid"><div class="evidence-card"><b>Antes</b>${await evidenceHTML(a.evidence_before)}</div><div class="evidence-card"><b>Después</b>${await evidenceHTML(a.evidence_after)}</div></div></div>`)}target.innerHTML=cards.join('')}
 function describeSnapshot(snapshot){if(!snapshot)return 'Registro inicial';return esc(JSON.stringify(snapshot).slice(0,500))}
 function historyHTML(jid){const rows=history.filter(h=>h.journey_id===jid).sort((a,b)=>String(b.changed_at).localeCompare(String(a.changed_at)));return rows.length?rows.map(h=>`<div class="history-entry"><b>${esc(h.action||'Edición')}</b> <small>· ${esc(new Date(h.changed_at).toLocaleString('es-PY'))} · ${esc(h.actor||'Usuario')}</small><div>${esc(h.details||'Registro actualizado')}</div></div>`).join(''):'<p class="hint">No hay movimientos anteriores. Los próximos cambios quedarán registrados.</p>'}
-async function showJourney(jid){const j=journeys.find(x=>x.id===jid);if(!j)return;if(!canSeeDetails()){const aa=activities.filter(a=>a.journey_id===jid);modal('Información de actividad',`<p><b>Estado:</b> ${esc(journeyStatus(aa))}</p>${aa.map(a=>`<div class="activity"><b>${esc(a.activity_type)}</b><p>Estado: ${esc(normalizedStatus(a.status))}</p></div>`).join('')}<div class="form-actions"><button class="secondary" onclick="closeDialog()">Cerrar</button></div>`,true);return;}const aa=activities.filter(a=>a.journey_id===j.id);modal('Ficha de jornada',`<p><b>Fecha:</b> ${esc(j.start_date)} &nbsp; <b>Barrio:</b> ${esc(j.neighborhood)}</p><p><b>Lugar:</b> ${esc(j.place_name)} (${esc(j.place_type)})</p><p><b>Calle:</b> ${esc(j.street||'No indicada')}</p><p><b>Ubicación:</b> ${esc(j.lat)}, ${esc(j.lng)}</p><p><b>Responsable:</b> ${esc(j.responsible)}<br><b>Cuadrilla:</b> ${esc(j.team)}<br><b>Personal:</b> ${esc(j.staff||'—')}<br><b>Instituciones:</b> ${esc(j.institutions||'—')}<br><b>Expediente:</b> ${esc(j.case_code||'—')}</p><div class="section-title">Actividades (${aa.length}) · Estado de la jornada: ${journeyStatus(aa)}</div>${aa.map(a=>`<div class="activity"><b>${esc(a.category)} · ${esc(a.activity_type)}</b><p>Estado: <span class="badge ${a.status==='Finalizada'?'finalizada':normalizedStatus(a.status)==='Programada'?'pendiente':'proceso'}">${esc(normalizedStatus(a.status))}</span></p><p>${esc(a.description)}</p>${a.finish_date?`<small>Fecha prevista: ${esc(a.finish_date)}</small>`:''}</div>`).join('')}<p><b>Total automático de actividades:</b> ${aa.length}</p><p><b>Observaciones:</b> ${esc(j.notes||'—')}</p><div class="section-title">Fotografías · Antes y después</div><div id="evidencePhotos"><p class="hint">Cargando evidencias…</p></div><div class="section-title">Historial de cambios</div>${historyHTML(jid)}<div class="form-actions">${canWrite()?`<button class="primary" onclick="openForm('${esc(j.id)}')">Editar esta ficha / finalizar</button>`:''}<button class="secondary" onclick="closeDialog()">Cerrar</button></div>`);await renderEvidence(jid)}
+async function showJourney(jid){if(!canSeeDetails())return;const j=journeys.find(x=>x.id===jid);if(!j)return;if(!canSeeDetails()){const aa=activities.filter(a=>a.journey_id===jid);modal('Información de actividad',`<p><b>Estado:</b> ${esc(journeyStatus(aa))}</p>${aa.map(a=>`<div class="activity"><b>${esc(a.activity_type)}</b><p>Estado: ${esc(normalizedStatus(a.status))}</p></div>`).join('')}<div class="form-actions"><button class="secondary" onclick="closeDialog()">Cerrar</button></div>`,true);return;}const aa=activities.filter(a=>a.journey_id===j.id);modal('Ficha de jornada',`<p><b>Fecha:</b> ${esc(j.start_date)} &nbsp; <b>Barrio:</b> ${esc(j.neighborhood)}</p><p><b>Lugar:</b> ${esc(j.place_name)} (${esc(j.place_type)})</p><p><b>Calle:</b> ${esc(j.street||'No indicada')}</p><p><b>Ubicación:</b> ${esc(j.lat)}, ${esc(j.lng)}</p><p><b>Responsable:</b> ${esc(j.responsible)}<br><b>Cuadrilla:</b> ${esc(j.team)}<br><b>Personal:</b> ${esc(j.staff||'—')}<br><b>Instituciones:</b> ${esc(j.institutions||'—')}<br><b>Expediente:</b> ${esc(j.case_code||'—')}</p><div class="section-title">Actividades (${aa.length}) · Estado de la jornada: ${journeyStatus(aa)}</div>${aa.map(a=>`<div class="activity"><b>${esc(a.category)} · ${esc(a.activity_type)}</b><p>Estado: <span class="badge ${a.status==='Finalizada'?'finalizada':normalizedStatus(a.status)==='Programada'?'pendiente':'proceso'}">${esc(normalizedStatus(a.status))}</span></p><p>${esc(a.description)}</p>${a.finish_date?`<small>Fecha prevista: ${esc(a.finish_date)}</small>`:''}</div>`).join('')}<p><b>Total automático de actividades:</b> ${aa.length}</p><p><b>Observaciones:</b> ${esc(j.notes||'—')}</p><div class="section-title">Fotografías · Antes y después</div><div id="evidencePhotos"><p class="hint">Cargando evidencias…</p></div><div class="section-title">Historial de cambios</div>${historyHTML(jid)}<div class="form-actions">${canWrite()?`<button class="primary" onclick="openForm('${esc(j.id)}')">Editar esta ficha / finalizar</button>`:''}<button class="secondary" onclick="closeDialog()">Cerrar</button></div>`);await renderEvidence(jid)}
 // Filtros compartidos entre el seguimiento y los puntos del mapa.
 function filteredActivities(){
  if(!canSeeDetails())return activities.map(a=>({...a,j:journeys.find(j=>j.id===a.journey_id)})).filter(a=>a.j);
@@ -211,9 +230,9 @@ function drawMap(){
   const aa=activities.filter(a=>a.journey_id===j.id);
   // El color representa el estado real de toda la jornada; los filtros solo controlan visibilidad.
   const color=statusColor(journeyStatus(aa));
-  L.circleMarker([+j.lat,+j.lng],{radius:8,weight:2,color:'#fff',fillColor:color,fillOpacity:.95})
-   .addTo(pinLayer).bindTooltip(esc(canSeeDetails()?(j.neighborhood||j.place_name||'Jornada'):'Actividad registrada'))
-   .on('click',()=>showJourney(j.id));
+  const marker=L.circleMarker([+j.lat,+j.lng],{radius:8,weight:2,color:'#fff',fillColor:color,fillOpacity:.95}).addTo(pinLayer);
+  // Visualizador: solamente puntos y colores, sin ficha, tooltip ni datos adicionales.
+  if(canSeeDetails())marker.bindTooltip(esc(j.neighborhood||j.place_name||'Jornada')).on('click',()=>showJourney(j.id));
  });
  const count=$('mapFilterCount');if(count)count.textContent=filtersActive()?`${matched.length} jornada(s) coincidente(s)`:'';
 }
@@ -223,7 +242,7 @@ function applyFilters(){
 }
 function drawStats(){const n=s=>activities.filter(a=>normalizedStatus(a.status)===s).length;$('sJourneys').textContent=journeys.length;$('sActivities').textContent=activities.length;$('sProgress').textContent=n('En ejecución');$('sFinished').textContent=n('Finalizada');const counts={};activities.forEach(a=>counts[a.category||'Sin categoría']=(counts[a.category||'Sin categoría']||0)+1);let max=Math.max(1,...Object.values(counts));$('categories').innerHTML=Object.keys(counts).length?Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([name,count])=>`<div class="barline"><span title="${esc(name)}">${esc(name)}</span><div class="track"><div class="fill" style="width:${count/max*100}%"></div></div><b class="count">${count}</b></div>`).join(''):'<p class="hint">No hay actividades registradas.</p>';$('statuses').innerHTML=['Programada','En ejecución','Finalizada'].map(s=>`<div class="row" style="justify-content:space-between;margin:8px 0"><span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${statusColor(s)}"></span> ${s}</span><b>${n(s)}</b></div>`).join('')}
 function drawTable(){if(!canSeeDetails()){$('tbody').innerHTML='';return;}const rows=filteredActivities().sort((a,b)=>String(b.j.start_date).localeCompare(String(a.j.start_date)));$('tbody').innerHTML=rows.map(a=>`<tr><td>${esc(a.j.start_date)}<br><small>${esc(a.j.case_code||'Sin expediente')}</small></td><td><b>${esc(a.j.neighborhood)}</b><br>${esc(a.j.place_name)}</td><td><b>${esc(a.category)}</b><br>${esc(a.activity_type)}</td><td><span class="badge ${a.status==='Finalizada'?'finalizada':normalizedStatus(a.status)==='Programada'?'pendiente':'proceso'}">${esc(normalizedStatus(a.status))}</span></td><td>${esc(a.finish_date||'—')}</td><td>${esc(a.j.responsible)}</td><td><button class="secondary" onclick="showJourney('${esc(a.j.id)}')">Ver ficha / seguimiento</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">No se encontraron actividades.</td></tr>'}
-function draw(){drawStats();drawTable();drawMap();$('modePill').textContent=inCloud()?'Supabase conectado':client?'Supabase · ingreso requerido':'Modo demostración';$('identity').textContent=inCloud()?`${profile?.display_name||session.user.email} · ${profile?.role||'visitante'}`:'Datos locales';$('loginBtn').classList.toggle('hidden',inCloud());$('logoutBtn').classList.toggle('hidden',!inCloud());$('usersBtn').classList.toggle('hidden',!isAdmin());$('tableBtn').classList.toggle('hidden',!canSeeDetails());$('tableSection').classList.toggle('hidden',!canSeeDetails());$('exportBtn').classList.toggle('hidden',!canSeeDetails());document.querySelector('.stats').classList.toggle('hidden',!canSeeDetails());document.querySelector('.side').classList.toggle('hidden',!canSeeDetails());document.querySelector('.layout').classList.toggle('viewer-layout',!canSeeDetails());document.querySelectorAll('[data-write]').forEach(el=>el.classList.toggle('hidden',!canWrite()))}
+function draw(){drawStats();drawTable();drawMap();$('modePill').textContent=inCloud()?'Supabase conectado':client?'Supabase · ingreso requerido':'Modo demostración';$('identity').textContent=inCloud()?`${profile?.display_name||session.user.email} · ${profile?.role||'visitante'}`:'Datos locales';$('loginBtn').classList.toggle('hidden',inCloud());$('logoutBtn').classList.toggle('hidden',!inCloud());$('usersBtn').classList.toggle('hidden',!isAdmin());$('tableBtn').classList.toggle('hidden',!canSeeDetails());$('tableSection').classList.toggle('hidden',!canSeeDetails());$('exportBtn').classList.toggle('hidden',!canSeeDetails());document.querySelector('.stats').classList.remove('hidden');document.querySelector('.side').classList.toggle('hidden',!canSeeDetails());document.querySelector('.layout').classList.toggle('viewer-layout',!canSeeDetails());if($('mapMessage')&&!canSeeDetails()&&!$('map').querySelector('.external-map'))$('mapMessage').textContent='Mapa de actividades de Asunción. Los puntos muestran solamente su estado por color.';document.querySelectorAll('[data-write]').forEach(el=>el.classList.toggle('hidden',!canWrite()))}
 function goTable(){$('tableSection').scrollIntoView({behavior:'smooth'})}function goMap(){$('mapSection').scrollIntoView({behavior:'smooth'})}function clearFilters(){$('q').value='';$('dateFilter').value='';$('statusFilter').value='';applyFilters();fitPins()}
 function saveDemo(){localStorage.setItem(STORE,JSON.stringify({journeys,activities,history}))}
 function restoreDemo(){try{let d=JSON.parse(localStorage.getItem(STORE)||'{}');journeys=d.journeys||[];activities=d.activities||[];history=d.history||[]}catch{journeys=[];activities=[];history=[]}}
